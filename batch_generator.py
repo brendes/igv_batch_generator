@@ -65,15 +65,8 @@ def generate_igv_script(snv_tups, sample_bam_map, header, footer):
     """
     script_body = ''
     for snv_tup in snv_tups:
-        if snv_tup.sampleID not in sample_bam_map:
-            # This must be a sample that we don't have a BAM for - this could happen
-            # when different data sources (HSPH, Park Lab, etc.) haven't yet completed
-            # the same analyses.
-            print("WARNING - sample %s (chr%s, %s) will not be snapshotted!" % (
-                snv_tup.sampleID, snv_tup.chromosome, snv_tup.position))
-            continue
         script_body += IGV_SCRIPT_BODY_FRAGMENT.format(
-            bam_file=sample_bam_map[snv_tup.sampleID],
+            bam_file=snv_tup.bam_path,
             chromosome=snv_tup.chromosome,
             position=snv_tup.position)
     return header + script_body + footer
@@ -87,9 +80,8 @@ def parse_cli_args():
     parser.add_argument('-b', '--batch-file-name', 
         default=time.strftime('%Y%m%d%H%M%S_igv_batch_script.igv'),
         help="File containing the output IGV commands")
-    parser.add_argument('-m', '--sample-name-to-sample-bam-map', default=SAMPLE_BAM_MAPPING_LOCATION,
-        help="Text file with tab-delimited sample names and corresponding BAM directories. \
-                Currently set to %s" % SAMPLE_BAM_MAPPING_LOCATION)
+    parser.add_argument('-m', '--sample-name-to-sample-bam-map',
+        help="Text file with tab-delimited sample names and corresponding BAM directories.")
     parser.add_argument('-d', '--snapshot-output-directory', required=True,
         help="Directory (**ON ORCHESTRA**) for resulting screenshots. THIS DIRECTORY \
         MUST EXIST BEFORE RUNNING THE IGV BATCH SCRIPT.")
@@ -107,18 +99,28 @@ def parse_cli_args():
 
     # This works just like a normal tuple but with the additional benefit of allowing named access
     # (i.e., locus_tuple.sampleID vs. locus_tupe[0])
-    LocusDataTuple = namedtuple('LocusDataTuple', ['sampleID', 'chromosome', 'position'])
+    LocusDataTuple = namedtuple('LocusDataTuple', ['sampleID', 'chromosome', 'position', 'bam_path'])
+    # TODO - if there isn't a BAM path column, look for -m header. If this is also not present
+    # raise an error
+    # - this solution removes the abilty to tolerate samples for which we do not have bam files
     with open(args.csv_of_interesting_loci) as locus_file:
         reader = csv.DictReader(locus_file)
-        locus_data = list()
-        for row in reader:
-            # Make tuple w/ the data we need. Not strictly necessary to make the tuple
-            # here but this facilitates testing downstream functions
-            locus_data.append(LocusDataTuple(row['SampleID'], row['CHROM'], row['POS']))
+        locus_data = []
+        if 'BAM_PATH' in reader.fieldnames:
+            # FIXME 
+            pass
+        else:
+            assert args.sample_name_to_sample_bam_map
+            for row in reader:
+                # Make tuple w/ the data we need. Not strictly necessary to make the tuple
+                # here but this facilitates testing downstream functions
+                locus_data.append(
+                    LocusDataTuple(row['SampleID'], row['CHROM'], row['POS'], sample_bam_map[row['SampleID']]))
     
+    # TODO - no reason for LocusData not to include the bam path as well...
     with open(args.batch_file_name, 'w+') as batch_output_file:
         full_igv_script = generate_igv_script(
-            locus_data, sample_bam_map,
+            locus_data,
             header=IGV_SCRIPT_HEADER % (
                 time.strftime('at %H:%M:%S on %Y-%m-%d'), args.snapshot_output_directory),
             footer=IGV_SCRIPT_FOOTER)
