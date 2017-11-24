@@ -56,7 +56,7 @@ exit
 
 SAMPLE_BAM_MAPPING_LOCATION = "/home/roi/work/r_walsh/0_data/ejs/all_sample_UMB_brains.txt"
 
-def generate_igv_script(snv_tups, sample_bam_map, header, footer):
+def generate_igv_script(snv_tups, header, footer):
     """Given (sample, chromosome, position) tuples, generate IGV commands
     to obtain snapshots of each specified locus
 
@@ -91,41 +91,38 @@ def parse_cli_args():
         'CHROM' and 'POS'") 
     args = parser.parse_args()
 
-    with open(args.sample_name_to_sample_bam_map) as sample_bam_map_file:
-        sample_bam_map = dict()
-        for row in sample_bam_map_file:
-            k, v = row.split()
-            sample_bam_map[k] = v
-            assert k in v # Sanity check - is the sample name contained in the filename?
-
+    
     # This works just like a normal tuple but with the additional benefit of allowing named access
     # (i.e., locus_tuple.sampleID vs. locus_tupe[0])
     LocusDataTuple = namedtuple('LocusDataTuple', ['sampleID', 'chromosome', 'position', 'bam_path', 'genome'])
-    # TODO - if there isn't a BAM path column, look for -m header. If this is also not present
-    # raise an error
-    # - this solution removes the abilty to tolerate samples for which we do not have bam files
+    # NOTE This solution to allowing user-specified bam paths 
+    # removes the abilty to tolerate samples for which we do not have bam files - may not actually
+    # be problematic, however
+    if args.sample_name_to_sample_bam_map is not None:
+        with open(args.sample_name_to_sample_bam_map) as sample_bam_map_file:
+            sample_bam_map = {}
+            for row in sample_bam_map_file:
+                k, v = row.split()
+                sample_bam_map[k] = v
+                assert k in v # Sanity check - is the sample name contained in the filename?
+
     with open(args.csv_of_interesting_loci) as locus_file:
         reader = csv.DictReader(locus_file)
         locus_data = []
-        if 'BAM_PATH' in reader.fieldnames:
-            # FIXME 
-            pass
-        else:
-            assert args.sample_name_to_sample_bam_map
-            for row in reader:
-                # Make tuple w/ the data we need. Not strictly necessary to make the tuple
-                # here but this facilitates testing downstream functions
-                genome = row['GENOME'] if 'GENOME' in reader.fieldnames else 'hg19'
-                locus_data.append(LocusDataTuple(
-                    row['SampleID'], row['CHROM'], row['POS'], sample_bam_map[row['SampleID']], genome))
+
+        for row in reader:
+            # Make tuple w/ the data we need
+            genome = row['GENOME'] if 'GENOME' in reader.fieldnames else 'hg19'
+            bam_path = sample_bam_map[row['SampleID']] if 'BAM_PATH' not in reader.fieldnames else row['BAM_PATH']
+            locus_data.append(LocusDataTuple(
+                row['SampleID'], row['CHROM'], row['POS'], bam_path, genome))
     
-    # TODO - no reason for LocusData not to include the bam path as well...
+    full_igv_script = generate_igv_script(
+        locus_data,
+        header=IGV_SCRIPT_HEADER % (
+            time.strftime('at %H:%M:%S on %Y-%m-%d'), args.snapshot_output_directory),
+        footer=IGV_SCRIPT_FOOTER)
     with open(args.batch_file_name, 'w+') as batch_output_file:
-        full_igv_script = generate_igv_script(
-            locus_data,
-            header=IGV_SCRIPT_HEADER % (
-                time.strftime('at %H:%M:%S on %Y-%m-%d'), args.snapshot_output_directory),
-            footer=IGV_SCRIPT_FOOTER)
         batch_output_file.write(full_igv_script)
 
 if __name__ == '__main__':
