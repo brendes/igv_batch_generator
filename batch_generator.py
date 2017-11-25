@@ -45,9 +45,9 @@ load {bam_file}
 goto chr{chromosome}:{position}
 sort quality
 expand
-snapshot chr{chromosome}-{position}-{genome}-expanded.png
+snapshot {sample_id}-chr{chromosome}-{position}-{genome}-expanded.png
 collapse
-snapshot chr{chromosome}-{position}-{genome}-collapsed.png
+snapshot {sample_id}-chr{chromosome}-{position}-{genome}-collapsed.png
 """
 
 IGV_SCRIPT_FOOTER = """
@@ -66,8 +66,9 @@ def generate_igv_script(snv_tups, header, footer):
     script_body = ''
     for snv_tup in snv_tups:
         script_body += IGV_SCRIPT_BODY_FRAGMENT.format(
-                bam_file=snv_tup.bam_path,
-                chromosome=snv_tup.chromosome,
+            sample_id=snv_tup.sampleID,
+            bam_file=snv_tup.bam_path,
+            chromosome=snv_tup.chromosome,
             position=snv_tup.position,
             genome=snv_tup.genome)
     return header + script_body + footer
@@ -79,7 +80,7 @@ def parse_cli_args():
     parser = argparse.ArgumentParser(
         description="Generate IGV batch script from Excel file of interesting loci")
     parser.add_argument('-b', '--batch-file-name', 
-        default=time.strftime('%Y%m%d%H%M%S_igv_batch_script.igv'),
+        default=time.strftime('%Y-%m-%d-%H%M_igv_batch_script.igv'),
         help="File containing the output IGV commands")
     parser.add_argument('-m', '--sample-name-to-sample-bam-map',
         help="Text file with tab-delimited sample names and corresponding BAM directories.")
@@ -111,9 +112,12 @@ def parse_cli_args():
         locus_data = []
 
         for row in reader:
-            # Make tuple w/ the data we need
+            # This solves a bug where certain fields contained newlines, causing IGV crashes
+            for k, v in row.items():
+                row[k] = v.strip()
             genome = row['GENOME'] if 'GENOME' in reader.fieldnames else 'hg19'
             bam_path = sample_bam_map[row['SampleID']] if 'BAM_PATH' not in reader.fieldnames else row['BAM_PATH']
+            # Make tuple w/ the data we need
             locus_data.append(LocusDataTuple(
                 row['SampleID'], row['CHROM'], row['POS'], bam_path, genome))
     
